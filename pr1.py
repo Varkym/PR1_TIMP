@@ -1,6 +1,7 @@
 class DataBase:
     def __init__(self, db_name):
         self.db_name = db_name
+        
         self.users = {
             1: ["user@example.com", "password123", "Сапегина Варвара", "Пользователь", False],
             2: ["admin@security.com", "admin123", "Медведев Михаил Александрович", "Администратор", False]
@@ -36,22 +37,40 @@ class DataBase:
         return self.security_events
 
 
-class SecurityService:
-    def __init__(self, db_name):
-        self.db = DataBase(db_name)
-    
-    def login(self, email, password):
-        for user_id, (user_email, user_pass, full_name, role, is_blocked) in self.db.users.items():
+class AuthHandler:
+    @staticmethod
+    def login(users, email, password):
+        for user_id, (user_email, user_pass, full_name, role, is_blocked) in users.items():
             if user_email == email and user_pass == password:
                 if is_blocked:
                     return None, None, None, "Аккаунт заблокирован"
                 return user_id, full_name, role, "Успешный вход"
         return None, None, None, "Неверные учетные данные"
+
+
+class AccessControl:
+    @staticmethod
+    def can_view_all(role):
+        return role == "Администратор"
+    
+    @staticmethod
+    def can_block(role):
+        return role == "Администратор"
+
+
+class SecurityService:
+    def __init__(self, db_name):
+        self.db = DataBase(db_name)
+        self.auth = AuthHandler()
+        self.access = AccessControl()
+    
+    def login(self, email, password):
+        return self.auth.login(self.db.users, email, password)
     
     def view_all_events(self, user_id, role):
         if user_id in self.db.users:
             all_events = self.db.get_all_events()
-            if role == "Пользователь":
+            if not self.access.can_view_all(role):
                 return {k: v for k, v in all_events.items() if v[1] == user_id}
             return all_events
         return "Пользователь не найден"
@@ -70,11 +89,14 @@ class SecurityService:
             return self.db.services[service_id][1]
         return "Неизвестный сервис"
     
-    def block_user(self, user_id):
+    def block_user(self, user_id, current_user_role):
+        if not self.access.can_block(current_user_role):
+            return False, "Недостаточно прав"
+        
         if user_id in self.db.users:
             self.db.users[user_id][4] = True
-            return True
-        return False
+            return True, "Пользователь заблокирован"
+        return False, "Пользователь не найден"
 
 
 class InteractionMenu:
@@ -194,20 +216,14 @@ class InteractionMenu:
         if not self.logged_in:
             print("Сначала войдите!")
             return
-        if self.current_user_role != "Администратор":
-            print("Доступ запрещен!")
-            return
         uid = int(input("ID пользователя для блокировки: "))
         if uid == self.current_user_id:
             print("Нельзя заблокировать себя!")
             return
-        if self.security_service.block_user(uid):
-            print(f"Пользователь {uid} заблокирован!")
-        else:
-            print("Пользователь не найден")
+        success, message = self.security_service.block_user(uid, self.current_user_role)
+        print(message)
 
 
 if __name__ == "__main__":
     app = InteractionMenu("безопасность_электронных_сервисов")
     app.start_menu()
-
